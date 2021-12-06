@@ -33,3 +33,14 @@ git submodule init
 git submodule update
 pip install --upgrade semg_silent_speech_py/
 ```
+
+If you also want to use the EMG data augmentation code, you'll also need
+to enable `tacotron2` within WaveGlow by doing the following after running
+the above code:
+
+```bash
+cd semg_silent_speech_py
+cd waveglow
+git submodule init
+git submodule update
+```
