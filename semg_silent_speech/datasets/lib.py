@@ -26,16 +26,85 @@ datasets might have different characteristics to the Digital Voicing of Silent
 Speech dataset.
 """
 
-class sEMGDataset(object):
+import torch
+import abc
+
+class sEMGUtterance(object):
+    """Base utterance object which encapsulates a single utterance within
+    an sEMG Silent Speech dataset. This is expected to contain vocalised
+    and silent EMG data, audio data, the audio text and other related
+    metadata. To define an utterance for a specific dataset, just subclass
+    this.
+    
+    Attributes:
+        vocal_emg_features: One or multiple EMG features (if applicable)
+            for the utterance during the vocalised modality. Should be
+            aligned with the audio.
+        silent_emg_features: One or multiple EMG features (if applicable)
+            for the utterance during the silent modality. Will not be
+            aligned with the audio.
+        text: Text representation of the audio data.
+        audio_raw: Raw audio data.
+        audio_features: MFCC, mel_spectogram or other audio features.
+    
+    May contain other attributes as well depending on the dataset. This is
+    just the list of of minimal attributes per utterance.
+    """
+
+    @property
+    def voiced_emg_features(self):
+        return self._voiced_emg_features
+    
+    @property
+    def silent_emg_features(self):
+        return self._silent_emg_features
+
+    @property
+    def text(self):
+        return self._text
+
+    @property
+    def audio_raw(self):
+        return self._audio_raw
+
+    @property
+    def audio_features(self):
+        return self._audio_features
+
+
+class sEMGDataset(torch.utils.data.Dataset):
     """Base dataset object to configure an sEMG Silent Speech dataset. To
     define a dataset, just subclass this.
 
     Attributes:
         name: The name of the dataset.
-        directory: The root directory of the dataset.
+        root_dir: The root directory of the dataset.
     """
-    directory = ""
 
     @property
     def name(self):
         return self.__class__.__name__
+    
+    """
+    @property
+    def num_features(self):
+        return self.get_num_features()
+    
+    @property
+    def num_speech_features(self):
+        return self.get_num_speech_features()
+    """
+    
+    """
+    @abc.abstractmethod
+    def get_num_speech_features(self):
+        pass
+
+    @abc.abstractmethod
+    def get_num_features(self):
+        pass
+
+    @abc.abstractmethod
+    def __len__(self):
+        pass
+    """
