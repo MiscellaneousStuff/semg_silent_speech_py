@@ -6,7 +6,7 @@ visualisations, utility functions and other useful functionality.
 
 A lot of the initial code in this Python module is adapted from the
 code released with the
-[Improved Voicing of Silent Speech](https://arxiv.org/pdf/2106.01933v1.pdfw)
+[Improved Voicing of Silent Speech](https://arxiv.org/pdf/2106.01933v1.pdf)
 paper in the
 [dgaddy/silent_speech](https://github.com/dgaddy/silent_speech) GitHub repository.
 Code adapted from this repository will be attributed to correctly under the MIT

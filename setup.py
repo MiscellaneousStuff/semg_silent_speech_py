@@ -42,7 +42,8 @@ setup(
     keywords=["sEMG", "silent speech", "machine learning", "research"],
     url="https://github.com/MiscellaneousStuff/semg_silent_speech_py",
     packages=[
-        "semg_silent_speech"
+        "semg_silent_speech",
+        "semg_silent_speech.lib",
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
