@@ -44,7 +44,9 @@ setup(
     packages=[
         "semg_silent_speech",
         "semg_silent_speech.lib",
-        "semg_silent_speech.bin"
+        "semg_silent_speech.bin",
+        "semg_silent_speech.datasets",
+        "semg_silent_speech.models"
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
