@@ -45,6 +45,9 @@ flags.DEFINE_integer("n_layers", 3, "Number of layers")
 flags.DEFINE_integer("idx_only", -1, "Train on a single sample only")
 flags.DEFINE_float("learning_rate", 0.001, "Step size during backpropagation")
 flags.DEFINE_integer("random_seed", 1, "Seed value for all libraries")
+flags.DEFINE_integer("n_epochs", 100, "Number of training epochs")
+flags.DEFINE_string("checkpoint_path", "", "(Optional) Existing model to continue training")
+flags.DEFINE_float("datasize_fraction", 1.0, "Percentage of the entire dataset to train on")
 flags.mark_flag_as_required("root_dir")
 
 def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
@@ -64,7 +67,7 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         model_size=FLAGS.model_size,
         n_layers=FLAGS.n_layers,
         dropout=FLAGS.dropout,
-        outs=devset.num_speech_features)
+        outs=devset.num_speech_features).to(device)
     
     if checkpoint_path:
         model.load_state_dict(torch.load(checkpoint_path))
@@ -79,7 +82,7 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         start = time.time()
         for batch in dataloader:
             optim.zero_grad()
-            X = batch["emg_features"].to(device)
+            X = batch["voiced_emg_features"].to(device) # NOTE: Only voiced for now
             y = batch["audio_features"].to(device)
 
             pred = model(X)
@@ -93,19 +96,40 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
             loss = F.mse_loss(pred, y)
             losses.append(loss.item())
 
+            loss.backward()
+            optim.step()
+        
+        train_loss = np.mean(losses)
+
+        end = time.time() - start
+        print(f"epoch: {epoch_idx+1}, loss: {train_loss:.4f}, tm: {end}")
+
+        losses_s.append(train_loss)
+
 def main(unused_argv):
     # Set random seed using NumPy and Torch
     random.seed(FLAGS.random_seed)
     np.random.seed(FLAGS.random_seed)
     torch.manual_seed(FLAGS.random_seed)
 
+    # Get training device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     idx_only = FLAGS.idx_only if FLAGS.idx_only != -1 else None
 
-    dataset = DigitalVoicingDataset(
+    trainset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
         idx_only=idx_only)
 
-    print('len(dataset):', len(dataset))
+    devset = DigitalVoicingDataset(
+        root_dir=FLAGS.root_dir,
+        idx_only=idx_only)
+
+    train(trainset=trainset,
+          devset=devset,
+          device=device,
+          n_epochs=FLAGS.n_epochs,
+          checkpoint_path=FLAGS.checkpoint_path)
 
 def entry_point():
     app.run(main)

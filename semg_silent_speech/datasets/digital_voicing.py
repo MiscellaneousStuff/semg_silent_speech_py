@@ -30,7 +30,7 @@ import librosa
 from semg_silent_speech.datasets  import lib
 from semg_silent_speech.lib.emg   import load_utterance
 from semg_silent_speech.lib.audio import load_audio
-from semg_silent_speech.lib.utils import double_average
+from semg_silent_speech.lib.utils import double_average, split_fixed_length
 
 electrode_labels = [
     "Cheek above mouth",
@@ -60,11 +60,10 @@ class DigitalVoicingUtterance(lib.sEMGUtterance):
         return {
             "text": self.text,
             "chunks": self.chunks,
-            "emg_data": self.emg_data,
-            "audio_features": self.audio_features,
-            "audio_discrete": self.audio_discrete,
-            "emg_data": self.emg_data,
-            "emg_features": self.emg_features
+            "voiced_emg_features": self._voiced_emg_features,
+            "silent_emg_features": self._silent_emg_features,
+            "audio_features": self._audio_features,
+            "audio_discrete": self._audio_discrete,
         }
     
     def __str__(self):
@@ -177,3 +176,22 @@ class DigitalVoicingDataset(lib.sEMGDataset):
 
     def __getitem__(self, i):
         return self.utterances[i].get_dict()
+    
+    @staticmethod
+    def collate_fixed_length(batch):
+        batch_size = len(batch)
+        audio_features = torch.cat(
+            [torch.from_numpy(utter['audio_features']) for utter in batch], 0)
+        audio_discrete = torch.cat(
+            [torch.from_numpy(utter["audio_discrete"]) for utter in batch], 0)
+
+        # Only voiced emg features for now
+        emg_features = torch.cat(
+            [torch.from_numpy(utter['voiced_emg_features']) for utter in batch], 0)
+
+        mb = batch_size * 8
+
+        return {
+            "audio_features": split_fixed_length(audio_features, 100)[:mb],
+            "voiced_emg_features":   split_fixed_length(emg_features, 100)[:mb],
+            "audio_discrete": split_fixed_length(audio_discrete, 16000)[:mb]}

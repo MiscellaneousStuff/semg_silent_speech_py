@@ -27,7 +27,7 @@ Speech dataset.
 """
 
 import torch
-import abc
+
 
 class sEMGUtterance(object):
     """Base utterance object which encapsulates a single utterance within
