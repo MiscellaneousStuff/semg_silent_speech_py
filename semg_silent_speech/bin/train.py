@@ -21,6 +21,14 @@
 # SOFTWARE.
 """Train a transduction or data augmentation model."""
 
+
+import numpy as np
+import time
+import random
+
+import torch
+import torch.nn.functional as F
+
 from absl import flags
 from absl import app
 
@@ -35,9 +43,62 @@ flags.DEFINE_integer("model_size", 1024, "Number of hidden dimensions")
 flags.DEFINE_integer("batch_size", 32, "Training batch size")
 flags.DEFINE_integer("n_layers", 3, "Number of layers")
 flags.DEFINE_integer("idx_only", -1, "Train on a single sample only")
+flags.DEFINE_float("learning_rate", 0.001, "Step size during backpropagation")
+flags.DEFINE_integer("random_seed", 1, "Seed value for all libraries")
 flags.mark_flag_as_required("root_dir")
 
+def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
+    training_subset = torch.utils.data.Subset(
+        trainset,
+        list(range(int(len(trainset) * FLAGS.datasize_fraction))))
+
+    dataloader = torch.utils.data.DataLoader(
+        training_subset,
+        shuffle=True,
+        pin_memory=(device=="cuda"),
+        collate_fn=devset.collate_fixed_length,
+        batch_size=FLAGS.batch_size)
+
+    model = DigitalVoicingModel(
+        ins=devset.num_features,
+        model_size=FLAGS.model_size,
+        n_layers=FLAGS.n_layers,
+        dropout=FLAGS.dropout,
+        outs=devset.num_speech_features)
+    
+    if checkpoint_path:
+        model.load_state_dict(torch.load(checkpoint_path))
+    optim = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate)
+
+    best_validation = float("inf")
+    best_loss = float("inf")
+
+    losses_s = []
+    for epoch_idx in range(n_epochs):
+        losses = []
+        start = time.time()
+        for batch in dataloader:
+            optim.zero_grad()
+            X = batch["emg_features"].to(device)
+            y = batch["audio_features"].to(device)
+
+            pred = model(X)
+            if pred.shape[0] != y.shape[0]:
+                min_first_dim = min(pred.shape[0], y.shape[0])
+                if pred.shape[0] != min_first_dim:
+                    pred = pred[min_first_dim:, :, :]
+                if y.shape[0] != min_first_dim:
+                    y = y[min_first_dim:, :, :]
+            
+            loss = F.mse_loss(pred, y)
+            losses.append(loss.item())
+
 def main(unused_argv):
+    # Set random seed using NumPy and Torch
+    random.seed(FLAGS.random_seed)
+    np.random.seed(FLAGS.random_seed)
+    torch.manual_seed(FLAGS.random_seed)
+
     idx_only = FLAGS.idx_only if FLAGS.idx_only != -1 else None
 
     dataset = DigitalVoicingDataset(
@@ -45,13 +106,6 @@ def main(unused_argv):
         idx_only=idx_only)
 
     print('len(dataset):', len(dataset))
-    
-    model = DigitalVoicingModel(
-        ins=dataset.num_features,
-        model_size=FLAGS.model_size,
-        n_layers=FLAGS.n_layers,
-        dropout=FLAGS.dropout,
-        outs=dataset.num_speech_features)
 
 def entry_point():
     app.run(main)
