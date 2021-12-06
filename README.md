@@ -17,3 +17,19 @@ License which the code is released under.
 This module is produced as part of the requirement for my Final Year
 Project for my BSc Computer Science degree requirement at the
 University of Portsmouth.
+
+# Quick Start Guide
+
+## Get sEMG Silent Speech
+
+### From Source
+
+You can install sEMG Silent Speech from a local clone of the git repo:
+
+```bash
+git clone https://github.com/MiscellaneousStuff/semg_silent_speech_py.git
+cd semg_silent_speech_py
+git submodule init
+git submodule update
+pip install --upgrade semg_silent_speech_py/
+```
