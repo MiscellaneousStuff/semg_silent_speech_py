@@ -28,6 +28,7 @@ import random
 
 import torch
 import torch.nn.functional as F
+from torch.cuda.amp.grad_scaler import GradScaler
 
 from absl import flags
 from absl import app
@@ -48,6 +49,8 @@ flags.DEFINE_integer("random_seed", 1, "Seed value for all libraries")
 flags.DEFINE_integer("n_epochs", 100, "Number of training epochs")
 flags.DEFINE_string("checkpoint_path", "", "(Optional) Existing model to continue training")
 flags.DEFINE_float("datasize_fraction", 1.0, "Percentage of the entire dataset to train on")
+flags.DEFINE_bool("data_augment_model", False, "Enable this to train a speech feature to EMG model instead")
+flags.DEFINE_bool("amp", False, "Enables automated mixed precision.")
 flags.mark_flag_as_required("root_dir")
 
 def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
@@ -76,28 +79,40 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
     best_validation = float("inf")
     best_loss = float("inf")
 
+    scaler = GradScaler()
+
     losses_s = []
     for epoch_idx in range(n_epochs):
         losses = []
         start = time.time()
         for batch in dataloader:
             optim.zero_grad()
-            X = batch["voiced_emg_features"].to(device) # NOTE: Only voiced for now
-            y = batch["audio_features"].to(device)
 
-            pred = model(X)
-            if pred.shape[0] != y.shape[0]:
-                min_first_dim = min(pred.shape[0], y.shape[0])
-                if pred.shape[0] != min_first_dim:
-                    pred = pred[min_first_dim:, :, :]
-                if y.shape[0] != min_first_dim:
-                    y = y[min_first_dim:, :, :]
-            
-            loss = F.mse_loss(pred, y)
-            losses.append(loss.item())
+            if not FLAGS.data_augment_model:
+                X = batch["voiced_emg_features"].to(device) # NOTE: Only voiced for now
+                y = batch["audio_features"].to(device)
+            else:
+                X = batch["audio_features"].to(device)
+                y = batch["voiced_emg_features"].to(device) # NOTE: Only voiced for now
 
-            loss.backward()
-            optim.step()
+            with torch.autocast(
+                enabled=FLAGS.amp,
+                dtype=torch.bfloat16,
+                device_type="cuda"):
+                pred = model(X)
+                if pred.shape[0] != y.shape[0]:
+                    min_first_dim = min(pred.shape[0], y.shape[0])
+                    if pred.shape[0] != min_first_dim:
+                        pred = pred[min_first_dim:, :, :]
+                    if y.shape[0] != min_first_dim:
+                        y = y[min_first_dim:, :, :]
+                
+                loss = F.mse_loss(pred, y)
+                losses.append(loss.item())
+
+            scaler.scale(loss).backward()
+            scaler.step(optim)
+            scaler.update()
         
         train_loss = np.mean(losses)
 
