@@ -59,9 +59,7 @@ flags.mark_flag_as_required("root_dir")
 def test(model, testset, device):
     model.eval()
 
-    test_start = time.time()
     dataloader = torch.utils.data.DataLoader(testset, batch_size=1)
-    test_end = time.time() - test_start
 
     losses = []
     with torch.no_grad():
@@ -90,12 +88,7 @@ def test(model, testset, device):
                 losses.append(loss.item())
             i += 1
 
-        print(f"val cnt: {i}")
-
     model.train()
-
-    test_exec_end = time.time() - test_start
-    print(f'test load tm: {test_end}, test exec tm: {test_exec_end}')
 
     return np.mean(losses)
 
@@ -185,7 +178,7 @@ def main(unused_argv):
     torch.manual_seed(FLAGS.random_seed)
 
     # Get trainset indices
-    with open("testset_test.json") as f:
+    with open("testset.json") as f:
         idx_s = json.loads(f.read())
 
     # Get training device
