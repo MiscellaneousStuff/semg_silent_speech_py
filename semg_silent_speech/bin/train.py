@@ -58,7 +58,9 @@ flags.DEFINE_string("output_directory", "./models/", "Directory to save model ch
 flags.DEFINE_float("datasize_fraction", 1.0, "Percentage of the entire dataset to train on")
 flags.DEFINE_bool("data_augment_model", False, "Enable this to train a speech feature to EMG model instead")
 flags.DEFINE_bool("amp", False, "Enables automated mixed precision.")
+flags.DEFINE_integer("num_workers", 0, "Number of threads to async load data into model")
 flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience")
+flags.DEFINE_bool("add_stft_features", False, "Use short-time fourier transform EMG features")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx):
@@ -122,7 +124,8 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         shuffle=True,
         pin_memory=(device=="cuda"),
         collate_fn=devset.collate_fixed_length,
-        batch_size=FLAGS.batch_size)
+        batch_size=FLAGS.batch_size,
+        num_workers=FLAGS.num_workers)
 
     model = DigitalVoicingModel(
         ins=devset.num_features \
@@ -230,12 +233,14 @@ def main(unused_argv):
     trainset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
         idx_only=idx_s["train"] if not idx_only else idx_only,
-        dataset_type=sEMGDatasetType.TRAIN)
+        dataset_type=sEMGDatasetType.TRAIN,
+        add_stft_features=FLAGS.add_stft_features)
 
     devset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
         idx_only=idx_s["dev"] if not idx_only else idx_only,
-        dataset_type=sEMGDatasetType.DEV)
+        dataset_type=sEMGDatasetType.DEV,
+        add_stft_features=FLAGS.add_stft_features)
 
     train(trainset=trainset,
           devset=devset,
