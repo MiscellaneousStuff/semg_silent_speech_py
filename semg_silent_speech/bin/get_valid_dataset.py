@@ -35,6 +35,7 @@ flags.DEFINE_string("output_path", None, "Output path for the `testset.json` fil
 flags.DEFINE_integer("train_count", 370, "Number of utterances for training")
 flags.DEFINE_integer("dev_count", 30, "Number of utterances for validation")
 flags.DEFINE_integer("test_count", 100, "Number of utterances for testing")
+flags.DEFINE_integer("random_seed", 1, "Sets the PRNG seed used to shuffle the indices")
 flags.mark_flag_as_required("root_dir")
 flags.mark_flag_as_required("output_path")
 

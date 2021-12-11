@@ -21,11 +21,14 @@
 # SOFTWARE.
 """Train a transduction or data augmentation model."""
 
-
 import numpy as np
 import time
 import random
 import json
+import os
+import re
+
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn.functional as F
@@ -37,6 +40,7 @@ from absl import app
 from semg_silent_speech.datasets.digital_voicing import DigitalVoicingDataset
 from semg_silent_speech.datasets.lib import sEMGDatasetType
 from semg_silent_speech.models.digital_voicing import DigitalVoicingModel
+from semg_silent_speech.lib import plotting
 
 FLAGS = flags.FLAGS
 
@@ -50,20 +54,21 @@ flags.DEFINE_float("learning_rate", 0.001, "Step size during backpropagation")
 flags.DEFINE_integer("random_seed", 1, "Seed value for all libraries")
 flags.DEFINE_integer("n_epochs", 100, "Number of training epochs")
 flags.DEFINE_string("checkpoint_path", "", "(Optional) Existing model to continue training")
+flags.DEFINE_string("output_directory", "./models/", "Directory to save model checkpoints to")
 flags.DEFINE_float("datasize_fraction", 1.0, "Percentage of the entire dataset to train on")
 flags.DEFINE_bool("data_augment_model", False, "Enable this to train a speech feature to EMG model instead")
 flags.DEFINE_bool("amp", False, "Enables automated mixed precision.")
 flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience")
 flags.mark_flag_as_required("root_dir")
 
-def test(model, testset, device):
+def test(model, testset, device, epoch_idx):
     model.eval()
 
     dataloader = torch.utils.data.DataLoader(testset, batch_size=1)
 
     losses = []
     with torch.no_grad():
-        i = 0
+        plotted = False # NOTE: Only plot the first sample
         for example in dataloader:
             if not FLAGS.data_augment_model:
                 X = example["voiced_emg_features"].to(device) # NOTE: Only voiced for now
@@ -86,7 +91,22 @@ def test(model, testset, device):
                 
                 loss = F.mse_loss(pred, y)
                 losses.append(loss.item())
-            i += 1
+
+            if epoch_idx % 10 == 0 and not plotted:
+                if not FLAGS.data_augment_model:
+                    fig = plotting.plot_mel_spectrograms(
+                        plotting.stack_mel_spectogram(pred),
+                        plotting.stack_mel_spectogram(y),
+                        epoch_idx=epoch_idx)
+                    fig.savefig("cur.png")
+                else:
+                    fig = plotting.plot_pred_y_emg_features(
+                        plotting.stack_emg_features(pred),
+                        plotting.stack_emg_features(y),
+                        epoch_idx=epoch_idx)
+                    fig.savefig("cur_augment.png")
+                plt.close()
+                plotted = True
 
     model.train()
 
@@ -118,16 +138,28 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
     if checkpoint_path:
         model.load_state_dict(torch.load(checkpoint_path))
     optim = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate)
+    """
     lr_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(\
         optim, 'min', 0.5, patience=FLAGS.learning_rate_patience)
+    """
 
     best_validation = float("inf")
-    best_loss = float("inf")
 
     scaler = GradScaler()
+    
+    epoch_idx_offset = 0
+    if checkpoint_path:
+        checkpoint_epoch = os.path.basename(checkpoint_path)
+        epoch_found = re.search("\(\d+\)", checkpoint_epoch)
+        if epoch_found:
+            epoch_idx_offset = int(epoch_found.group(0)[1:-1])
 
     losses_s = []
     for epoch_idx in range(n_epochs):
+        # Continuation training variables
+        orig_epoch_idx = epoch_idx
+        epoch_idx += epoch_idx_offset
+
         losses = []
         start = time.time()
         for batch in dataloader:
@@ -160,14 +192,23 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
             scaler.update()
         
         val_start = time.time()
-        val = test(model, devset, device)
-        lr_sched.step(val)
+        val = test(model, devset, device, epoch_idx)
+        # lr_sched.step(val)
 
         train_loss = np.mean(losses)
 
+        if best_validation != val and epoch_idx % 100 == 0 or orig_epoch_idx+1 == n_epochs:
+            os.makedirs("./models", exist_ok=True)
+
+            torch.save(model.state_dict(),
+                os.path.join(FLAGS.output_directory,
+                f'epoch({epoch_idx})_loss({val})_model.pt'))
+        best_validation = min(best_validation, val)
+
+
         end = time.time() - start
         val_end = time.time() - val_start
-        print(f"epoch: {epoch_idx+1}, vloss: {val}, loss: {train_loss:.4f}, tm: {end}, val_tm: {val_end}")
+        print(f"epoch: {epoch_idx+1}, vloss: {val}, loss: {train_loss}, tm: {end:.4f}, val_tm: {val_end:.4f}")
 
         losses_s.append(train_loss)
 
@@ -186,13 +227,11 @@ def main(unused_argv):
 
     idx_only = [FLAGS.idx_only] if FLAGS.idx_only != -1 else None
 
-    print('Loading train...')
     trainset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
         idx_only=idx_s["train"] if not idx_only else idx_only,
         dataset_type=sEMGDatasetType.TRAIN)
 
-    print('Loading dev...')
     devset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
         idx_only=idx_s["dev"] if not idx_only else idx_only,

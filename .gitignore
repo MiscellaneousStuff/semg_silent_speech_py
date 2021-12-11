@@ -130,3 +130,6 @@ dmypy.json
 
 # Ignore checkpoints
 /models
+
+# Ignore plots
+.png
