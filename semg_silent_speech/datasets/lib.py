@@ -27,6 +27,7 @@ Speech dataset.
 """
 
 import torch
+import enum
 
 
 class sEMGUtterance(object):
@@ -70,6 +71,12 @@ class sEMGUtterance(object):
     @property
     def audio_features(self):
         return self._audio_features
+
+
+class sEMGDatasetType(enum.IntEnum):
+    TRAIN = 0
+    DEV   = 1
+    TEST  = 2
 
 
 class sEMGDataset(torch.utils.data.Dataset):

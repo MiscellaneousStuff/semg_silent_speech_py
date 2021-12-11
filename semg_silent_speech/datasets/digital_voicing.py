@@ -80,16 +80,21 @@ class DigitalVoicingDataset(lib.sEMGDataset):
         idx_only=None,
         mel_spectograms=True,
         limit_length=False,
-        add_stft_features=False):
-        
+        add_stft_features=False,
+        dataset_type=lib.sEMGDatasetType.TRAIN):
+
+        # Union between idx list and target idx list
         files = os.listdir(root_dir)
-        idx_s = set([fi.split("_")[0] for fi in files])
+        idx_s = set([int(fi.split("_")[0]) for fi in files])
+        if idx_only:
+            idx_s = idx_s.intersection(set(idx_only))
+        
+        if lib.sEMGDatasetType.DEV:
+            print(len(idx_s), dataset_type)
+
         utterances = []
         sentences = {}
         books = {}
-
-        if idx_only:
-            idx_s = [idx_only]
 
         for idx in idx_s:
             info_fi  = f"{idx}_info.json"
@@ -155,6 +160,7 @@ class DigitalVoicingDataset(lib.sEMGDataset):
                 audio_raw))
 
         self.utterances = utterances
+        print(len(self.utterances), dataset_type)
         self.sentences = sentences
         self.books = books
 

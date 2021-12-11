@@ -44,3 +44,9 @@ cd waveglow
 git submodule init
 git submodule update
 ```
+
+## Inference
+
+### Transduction
+
+This model converts a sequence of EMG features into a sequence of audio features.

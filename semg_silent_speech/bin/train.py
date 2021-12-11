@@ -25,6 +25,7 @@
 import numpy as np
 import time
 import random
+import json
 
 import torch
 import torch.nn.functional as F
@@ -34,6 +35,7 @@ from absl import flags
 from absl import app
 
 from semg_silent_speech.datasets.digital_voicing import DigitalVoicingDataset
+from semg_silent_speech.datasets.lib import sEMGDatasetType
 from semg_silent_speech.models.digital_voicing import DigitalVoicingModel
 
 FLAGS = flags.FLAGS
@@ -51,7 +53,51 @@ flags.DEFINE_string("checkpoint_path", "", "(Optional) Existing model to continu
 flags.DEFINE_float("datasize_fraction", 1.0, "Percentage of the entire dataset to train on")
 flags.DEFINE_bool("data_augment_model", False, "Enable this to train a speech feature to EMG model instead")
 flags.DEFINE_bool("amp", False, "Enables automated mixed precision.")
+flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience")
 flags.mark_flag_as_required("root_dir")
+
+def test(model, testset, device):
+    model.eval()
+
+    test_start = time.time()
+    dataloader = torch.utils.data.DataLoader(testset, batch_size=1)
+    test_end = time.time() - test_start
+
+    losses = []
+    with torch.no_grad():
+        i = 0
+        for example in dataloader:
+            if not FLAGS.data_augment_model:
+                X = example["voiced_emg_features"].to(device) # NOTE: Only voiced for now
+                y = example["audio_features"].to(device)
+            else:
+                X = example["audio_features"].to(device)
+                y = example["voiced_emg_features"].to(device) # NOTE: Only voiced for now
+
+            with torch.autocast(
+                enabled=FLAGS.amp,
+                dtype=torch.bfloat16,
+                device_type="cuda"):
+                pred = model(X)
+                if pred.shape[0] != y.shape[0]:
+                    min_first_dim = min(pred.shape[0], y.shape[0])
+                    if pred.shape[0] != min_first_dim:
+                        pred = pred[min_first_dim:, :, :]
+                    if y.shape[0] != min_first_dim:
+                        y = y[min_first_dim:, :, :]
+                
+                loss = F.mse_loss(pred, y)
+                losses.append(loss.item())
+            i += 1
+
+        print(f"val cnt: {i}")
+
+    model.train()
+
+    test_exec_end = time.time() - test_start
+    print(f'test load tm: {test_end}, test exec tm: {test_exec_end}')
+
+    return np.mean(losses)
 
 def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
     training_subset = torch.utils.data.Subset(
@@ -66,15 +112,21 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         batch_size=FLAGS.batch_size)
 
     model = DigitalVoicingModel(
-        ins=devset.num_features,
+        ins=devset.num_features \
+            if not FLAGS.data_augment_model \
+            else devset.num_speech_features,
         model_size=FLAGS.model_size,
         n_layers=FLAGS.n_layers,
         dropout=FLAGS.dropout,
-        outs=devset.num_speech_features).to(device)
+        outs=devset.num_speech_features \
+             if not FLAGS.data_augment_model \
+             else devset.num_features).to(device)
     
     if checkpoint_path:
         model.load_state_dict(torch.load(checkpoint_path))
     optim = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate)
+    lr_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(\
+        optim, 'min', 0.5, patience=FLAGS.learning_rate_patience)
 
     best_validation = float("inf")
     best_loss = float("inf")
@@ -114,10 +166,15 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
             scaler.step(optim)
             scaler.update()
         
+        val_start = time.time()
+        val = test(model, devset, device)
+        lr_sched.step(val)
+
         train_loss = np.mean(losses)
 
         end = time.time() - start
-        print(f"epoch: {epoch_idx+1}, loss: {train_loss:.4f}, tm: {end}")
+        val_end = time.time() - val_start
+        print(f"epoch: {epoch_idx+1}, vloss: {val}, loss: {train_loss:.4f}, tm: {end}, val_tm: {val_end}")
 
         losses_s.append(train_loss)
 
@@ -127,18 +184,26 @@ def main(unused_argv):
     np.random.seed(FLAGS.random_seed)
     torch.manual_seed(FLAGS.random_seed)
 
+    # Get trainset indices
+    with open("testset_test.json") as f:
+        idx_s = json.loads(f.read())
+
     # Get training device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    idx_only = FLAGS.idx_only if FLAGS.idx_only != -1 else None
+    idx_only = [FLAGS.idx_only] if FLAGS.idx_only != -1 else None
 
+    print('Loading train...')
     trainset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
-        idx_only=idx_only)
+        idx_only=idx_s["train"] if not idx_only else idx_only,
+        dataset_type=sEMGDatasetType.TRAIN)
 
+    print('Loading dev...')
     devset = DigitalVoicingDataset(
         root_dir=FLAGS.root_dir,
-        idx_only=idx_only)
+        idx_only=idx_s["dev"] if not idx_only else idx_only,
+        dataset_type=sEMGDatasetType.DEV)
 
     train(trainset=trainset,
           devset=devset,
