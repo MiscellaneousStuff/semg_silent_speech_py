@@ -4,3 +4,5 @@ soundfile
 numpy
 absl-py
 tensorflow
+wave
+scipy

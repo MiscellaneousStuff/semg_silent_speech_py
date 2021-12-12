@@ -6,6 +6,8 @@ import torch
 import matplotlib
 import matplotlib.pyplot as plt
 
+from scipy.io.wavfile import write
+
 from waveglow.tacotron2.model import Tacotron2
 from waveglow.tacotron2.layers import TacotronSTFT, STFT
 from waveglow.tacotron2.audio_processing import griffin_lim
@@ -25,7 +27,11 @@ def plot_data(data, figsize=(16, 4)):
                        interpolation='none')
     fig.savefig("text_to_mel.png")
 
-def infer(waveglow_checkpoint_path, tacotron_checkpoint_path, text):
+def infer(waveglow_checkpoint_path,
+          tacotron_checkpoint_path,
+          text,
+          audio_path=None,
+          denoise=False):
     hparams = create_hparams()
     hparams.sampling_rate = 22050
 
@@ -38,6 +44,7 @@ def infer(waveglow_checkpoint_path, tacotron_checkpoint_path, text):
     waveglow.cuda().eval() # .half()
     for k in waveglow.convinv:
         k.float()
+    denoiser = Denoiser(waveglow)
 
     sequence = np.array(text_to_sequence(text, ['english_cleaners']))[None, :]
     sequence = torch.autograd.Variable(
@@ -47,3 +54,15 @@ def infer(waveglow_checkpoint_path, tacotron_checkpoint_path, text):
     plot_data((mel_outputs.float().data.cpu().numpy()[0],
             mel_outputs_postnet.float().data.cpu().numpy()[0],
             alignments.float().data.cpu().numpy()[0].T))
+    
+    if audio_path:
+        with torch.no_grad():
+            audio = waveglow.infer(mel_outputs_postnet, sigma=0.666)
+
+        if not denoise:
+            out_data = audio[0].data.cpu().numpy()
+            write(audio_path, hparams.sampling_rate, out_data)
+        else:
+            audio_denoised = denoiser(audio, strength=0.01)[:, 0]
+            out_data = audio_denoised.cpu().squeeze().numpy()
+            write(audio_path, hparams.sampling_rate, out_data)
