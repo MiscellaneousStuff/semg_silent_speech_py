@@ -128,8 +128,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Ignore checkpoints
+# Ignore checkpoints and audio outputs
 /models
+/audio_outputs
 
 # Ignore plots
 *.png

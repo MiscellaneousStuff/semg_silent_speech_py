@@ -27,24 +27,15 @@ def plot_data(data, figsize=(16, 4)):
                        interpolation='none')
     fig.savefig("text_to_mel.png")
 
-def infer(waveglow_checkpoint_path,
-          tacotron_checkpoint_path,
-          text,
-          audio_path=None,
-          denoise=False):
+def text_to_mel(tacotron_checkpoint_path, text):
+    """Accepts text and returns the mel_spectogram of the text
+    and returns the hyperparameters of the text to mel_spectogram model."""
     hparams = create_hparams()
     hparams.sampling_rate = 22050
 
     model = load_model(hparams)
     model.load_state_dict(torch.load(tacotron_checkpoint_path)['state_dict'])
     _ = model.cuda().eval() # .half()
-
-    waveglow = torch.load(waveglow_checkpoint_path)['model']
-
-    waveglow.cuda().eval() # .half()
-    for k in waveglow.convinv:
-        k.float()
-    denoiser = Denoiser(waveglow)
 
     sequence = np.array(text_to_sequence(text, ['english_cleaners']))[None, :]
     sequence = torch.autograd.Variable(
@@ -55,14 +46,32 @@ def infer(waveglow_checkpoint_path,
             mel_outputs_postnet.float().data.cpu().numpy()[0],
             alignments.float().data.cpu().numpy()[0].T))
     
+    return mel_outputs_postnet, hparams
+
+def infer(waveglow_checkpoint_path,
+          mel_spectogram,
+          sampling_rate=22_050,
+          audio_path=None,
+          denoise=False):
+    """Generates waveform audio data using WaveGlow from mel_spectograms."""
+    waveglow = torch.load(waveglow_checkpoint_path)['model']
+
+    waveglow.cuda().eval() # .half()
+    for k in waveglow.convinv:
+        k.float()
+    denoiser = Denoiser(waveglow)
+
+    mel_outputs_postnet = mel_spectogram
+    
     if audio_path:
         with torch.no_grad():
+            print('waveglow infer mel shape:', mel_outputs_postnet.shape)
             audio = waveglow.infer(mel_outputs_postnet, sigma=0.666)
 
         if not denoise:
             out_data = audio[0].data.cpu().numpy()
-            write(audio_path, hparams.sampling_rate, out_data)
+            write(audio_path, sampling_rate, out_data)
         else:
             audio_denoised = denoiser(audio, strength=0.01)[:, 0]
             out_data = audio_denoised.cpu().squeeze().numpy()
-            write(audio_path, hparams.sampling_rate, out_data)
+            write(audio_path, sampling_rate, out_data)

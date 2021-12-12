@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(__file__, '../../../waveglow/')))
 sys.path.append(os.path.abspath(os.path.join(__file__, '../../../waveglow/tacotron2')))
 
-from semg_silent_speech.models.text_to_mel import infer
+from semg_silent_speech.models.text_to_mel import infer, text_to_mel
 
 from absl import flags
 from absl import app
@@ -20,15 +20,22 @@ flags.DEFINE_string("audio_path", None, "(Optional) Generate and save audio of t
 flags.DEFINE_bool("denoise", None, "(Optional) Removes noise from audio output")
 flags.mark_flag_as_required("waveglow_checkpoint")
 flags.mark_flag_as_required("tacotron2_checkpoint")
-flags.mark_flag_as_required("text")
+
+def save_output(waveglow_path, mel_spectogram, sr, audio_path, denoise=False):
+    infer(waveglow_path, mel_spectogram, sr, audio_path, denoise)
 
 def main(unused_argv):
-    waveglow_checkpoint_path = FLAGS.waveglow_checkpoint
-    tacotron2_checkpoint_path = FLAGS.tacotron2_checkpoint
     text = FLAGS.text
-    audio_path = FLAGS.audio_path
-    denoise = FLAGS.denoise
-    infer(waveglow_checkpoint_path, tacotron2_checkpoint_path, text, audio_path, denoise)
+    if not text == None:
+        waveglow_checkpoint_path = FLAGS.waveglow_checkpoint
+        tacotron2_checkpoint_path = FLAGS.tacotron2_checkpoint
+        audio_path = FLAGS.audio_path
+        denoise = FLAGS.denoise
+        save_output(waveglow_checkpoint_path,
+                    text_to_mel(tacotron2_checkpoint_path, text),
+                    22_050,
+                    audio_path,
+                    denoise)
 
 def entry_point():
     app.run(main)
