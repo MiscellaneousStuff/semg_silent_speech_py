@@ -29,20 +29,44 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from semg_silent_speech.models.transformer import TransformerEncoderLayer
+from semg_silent_speech.models.lib import SequenceLayerType
+
 
 class DigitalVoicingModel(nn.Module):
-    def __init__(self, ins, model_size, n_layers, dropout, outs):
+    def __init__(self,
+                 ins,
+                 model_size,
+                 n_layers,
+                 dropout,
+                 outs,
+                 sequence_layer=SequenceLayerType.LSTM):
         super().__init__()
         self.dropout = dropout
-        self.lstm = \
-            nn.LSTM(
-                ins, model_size, batch_first=True,
-                bidirectional=True, num_layers=n_layers,
-                dropout=dropout)
-        self.w1 = nn.Linear(model_size * 2, outs)
+        self.sequence_layer=sequence_layer
+        if sequence_layer == SequenceLayerType.LSTM:
+            self.lstm = \
+                nn.LSTM(
+                    ins, model_size, batch_first=True,
+                    bidirectional=True, num_layers=n_layers,
+                    dropout=dropout)
+            self.w1 = nn.Linear(model_size * 2, outs)
+        else:
+            encoder_layer = TransformerEncoderLayer(
+                d_model=model_size,        
+                nhead=8,
+                relative_positional=True,
+                relative_positional_distance=100,
+                dim_feedforward=3072)
+            self.transformer = nn.TransformerEncoder(encoder_layer, n_layers)
+            self.w_out = nn.Linear(model_size, outs)
     
     def forward(self, x):
-        x = F.dropout(x, self.dropout, training=self.training)
-        x, _ = self.lstm(x)
-        x = F.dropout(x, self.dropout, training=self.training)
-        return self.w1(x)
+        if self.sequence_layer == SequenceLayerType.LSTM:
+            x = F.dropout(x, self.dropout, training=self.training)
+            x, _ = self.lstm(x)
+            x = F.dropout(x, self.dropout, training=self.training)
+            return self.w1(x)
+        elif self.sequence_layer == SequenceLayerType.TRANSFORMER:
+            x = self.transformer(x)
+            return self.w_out(x)

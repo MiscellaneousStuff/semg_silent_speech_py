@@ -3,3 +3,4 @@ librosa
 soundfile
 numpy
 absl-py
+tensorflow

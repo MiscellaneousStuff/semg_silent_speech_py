@@ -40,6 +40,7 @@ from absl import app
 from semg_silent_speech.datasets.digital_voicing import DigitalVoicingDataset
 from semg_silent_speech.datasets.lib import sEMGDatasetType
 from semg_silent_speech.models.digital_voicing import DigitalVoicingModel
+from semg_silent_speech.models.lib import SequenceLayerType
 from semg_silent_speech.lib import plotting
 
 FLAGS = flags.FLAGS
@@ -61,6 +62,7 @@ flags.DEFINE_bool("amp", False, "Enables automated mixed precision.")
 flags.DEFINE_integer("num_workers", 0, "Number of threads to async load data into model")
 flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience")
 flags.DEFINE_bool("add_stft_features", False, "Use short-time fourier transform EMG features")
+flags.DEFINE_bool("use_transformer", False, "Use transformer layer for sequence layer")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx):
@@ -136,7 +138,10 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         dropout=FLAGS.dropout,
         outs=devset.num_speech_features \
              if not FLAGS.data_augment_model \
-             else devset.num_features).to(device)
+             else devset.num_features,
+        sequence_layer=SequenceLayerType.TRANSFORMER \
+             if FLAGS.use_transformer \
+             else SequenceLayerType.LSTM).to(device)
     
     if checkpoint_path:
         model.load_state_dict(torch.load(checkpoint_path))
