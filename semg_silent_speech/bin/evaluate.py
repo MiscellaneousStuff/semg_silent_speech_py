@@ -24,10 +24,16 @@ to determine the text content of audio features. This text content is compared
 against the ground truth and the WER is calculated."""
 
 import os
-import torch
 import random
-import numpy as np
 import json
+import torch
+import numpy as np
+import soundfile as sf
+
+from unidecode import unidecode
+import jiwer
+import deepspeech
+import librosa
 
 from absl import flags
 from absl import app
@@ -55,8 +61,31 @@ flags.DEFINE_string("audio_output_dir", None, "Directory to save audio files to"
 # flags.mark_flag_as_required("root_dir")
 flags.mark_flag_as_required("audio_output_dir")
 
-def evaluate(testset, audio_dir):
-    pass
+def evaluate(testset, audio_output_dir):
+    model = deepspeech.Model('deepspeech-0.7.0-models.pbmm')
+    model.enableExternalScorer('deepspeech-0.7.0-models.scorer')
+    predictions = []
+    targets = []
+    for i, datapoint in enumerate(testset):
+        audio, rate = librosa.load(
+            os.path.join(audio_output_dir, f"example_output_{i}.wav"),
+            sr=model.sampleRate())
+        if i == 2:
+            sf.write(f"example_output_22kHz_to_16kHz_{i}.wav",
+                     audio,
+                     rate)
+        audio_int16 = (audio*(2**15)).astype(np.int16)
+        text = model.stt(audio_int16)
+        predictions.append(text)
+        target_text = unidecode(datapoint['text'])
+        targets.append(target_text)
+        print(i, text, target_text)
+    transformation = jiwer.Compose([jiwer.RemovePunctuation(), jiwer.ToLowerCase()])
+    targets = transformation(targets)
+    predictions = transformation(predictions)
+    print('targets:', targets)
+    print('predictions:', predictions)
+    print('wer:', jiwer.wer(targets, predictions))
 
 def main(unused_argv):
     random.seed(FLAGS.random_seed)
@@ -99,10 +128,12 @@ def main(unused_argv):
                     mel,
                     22_050,
                     os.path.join(FLAGS.audio_output_dir, f"example_output_{i}.wav"),
-                    denoise=False)
+                    denoise=True)
 
     error = test(model, testset, device, epoch_idx=-1)
     print(error)
+
+    evaluate(testset, FLAGS.audio_output_dir)
 
 def entry_point():
     app.run(main)

@@ -137,3 +137,10 @@ dmypy.json
 
 # Model checkpoints
 *.pt
+
+# Ignore deepspeech pre-trained models
+*.pbmm
+*.scorer
+
+# Ignore top level audio files
+*.wav

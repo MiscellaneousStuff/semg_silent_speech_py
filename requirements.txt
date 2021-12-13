@@ -6,3 +6,6 @@ absl-py
 tensorflow
 wave
 scipy
+jiwer
+deepspeech-gpu
+unidecode
