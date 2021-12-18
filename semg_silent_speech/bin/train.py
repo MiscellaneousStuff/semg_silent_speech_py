@@ -63,6 +63,7 @@ flags.DEFINE_integer("num_workers", 0, "Number of threads to async load data int
 flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience")
 flags.DEFINE_bool("add_stft_features", False, "Use short-time fourier transform EMG features")
 flags.DEFINE_bool("use_transformer", False, "Use transformer layer for sequence layer")
+flags.DEFINE_bool("train_with_augmentation", False, "Set this to train with generated EMG data")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx):

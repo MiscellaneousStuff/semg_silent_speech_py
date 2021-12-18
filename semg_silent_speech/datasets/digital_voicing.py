@@ -72,7 +72,11 @@ class DigitalVoicingUtterance(lib.sEMGUtterance):
 
 class DigitalVoicingDataset(lib.sEMGDataset):
     """Encapsulation of the sEMG Silent Speech dataset released along with the
-    Digital Voicing of Silent Speech dataset by David Gaddy and Dan Klein."""
+    Digital Voicing of Silent Speech dataset by David Gaddy and Dan Klein.
+    
+    This class further generalises between the original ground truth dataset
+    and EMG data which has been synthesized on a model trained to create
+    genuine samples from the same distribution as the ground truth dataset."""
     name = "Digital Voicing"
 
     def __init__(self,
@@ -81,8 +85,26 @@ class DigitalVoicingDataset(lib.sEMGDataset):
         mel_spectograms=True,
         limit_length=False,
         add_stft_features=False,
-        dataset_type=lib.sEMGDatasetType.TRAIN):
+        dataset_type=lib.sEMGDatasetType.TRAIN,
+        dataset_source=lib.sEMGDatasetSource.GROUND_TRUTH):
 
+        self.dataset_type   = dataset_type
+        self.dataset_source = dataset_source
+
+        if root_dir and dataset_source==lib.sEMGDatasetSource.GROUND_TRUTH:
+            self.load_ground_truth(
+                root_dir,
+                idx_only,
+                limit_length,
+                add_stft_features,
+                mel_spectograms)
+
+    def load_ground_truth(self,
+                          root_dir,
+                          idx_only,
+                          limit_length,
+                          add_stft_features,
+                          mel_spectograms):
         # Union between idx list and target idx list
         files = os.listdir(root_dir)
         idx_s = set([fi.split("_")[0] for fi in files])

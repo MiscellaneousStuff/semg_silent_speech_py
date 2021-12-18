@@ -74,9 +74,17 @@ class sEMGUtterance(object):
 
 
 class sEMGDatasetType(enum.IntEnum):
+    """Intended usage of this dataset."""
     TRAIN = 0
     DEV   = 1
     TEST  = 2
+
+
+class sEMGDatasetSource(enum.IntEnum):
+    """Source of the dataset. This is either an original dataset
+    or augmented data generated using a model."""
+    GROUND_TRUTH = 0
+    AUGMENTED = 1
 
 
 class sEMGDataset(torch.utils.data.Dataset):
