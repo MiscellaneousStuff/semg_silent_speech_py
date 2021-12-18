@@ -27,6 +27,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+from semg_silent_speech.datasets.digital_voicing import electrode_labels 
+
 def plot_pred_y_emg_features(pred, y, epoch_idx):
     fig, ax = plt.subplots(2)
 
@@ -40,8 +42,7 @@ def plot_emg_features(emg_features, ax, text, epoch_idx):
     ax.set_title(f"EMG Feature: {text}{epoch_txt}")
     for i in range(emg_features.shape[1]):
         cur = np.squeeze(emg_features)[:,i::5]
-        ax.plot(cur) # , label=electrode_labels[i])
-    ax.legend()
+        ax.plot(cur)
     return ax
 
 def plot_mel_spectrograms(pred, y, epoch_idx=None):

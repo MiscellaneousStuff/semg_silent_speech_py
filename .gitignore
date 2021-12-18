@@ -144,3 +144,6 @@ dmypy.json
 
 # Ignore top level audio files
 *.wav
+
+# Ignore augment_vs_ground visualisations
+/augment_vs_ground_visuals
