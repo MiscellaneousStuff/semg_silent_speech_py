@@ -52,6 +52,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("root_dir", None, "Root directory of the EMG dataset")
 flags.DEFINE_float("dropout", 0.0, "Dropout value")
 flags.DEFINE_integer("model_size", 1024, "Number of hidden dimensions")
+flags.DEFINE_integer("augment_model_size", 256, "Number of hidden dimensions for augment model")
 flags.DEFINE_integer("batch_size", 32, "Training batch size")
 flags.DEFINE_integer("n_layers", 3, "Number of layers")
 flags.DEFINE_integer("idx_only", -1, "Train on a single sample only")
@@ -137,7 +138,7 @@ def test(model, testset, device, epoch_idx, run=None):
 def get_augmented_utterances(dataloader, devset, device):
     model = DigitalVoicingModel(
         ins=devset.num_speech_features,
-        model_size=256, # NOTE: ONLY HARD CODE THIS FOR NOW!
+        model_size=FLAGS.augment_model_size,
         n_layers=FLAGS.n_layers,
         dropout=FLAGS.dropout,
         outs=devset.num_features,
