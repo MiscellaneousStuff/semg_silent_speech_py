@@ -27,6 +27,8 @@ import json
 import numpy as np
 import librosa
 
+import torch.nn.functional as F
+
 from semg_silent_speech.datasets  import lib
 from semg_silent_speech.lib.emg   import load_utterance
 from semg_silent_speech.lib.audio import load_audio
@@ -80,7 +82,7 @@ class DigitalVoicingDataset(lib.sEMGDataset):
     name = "Digital Voicing"
 
     def __init__(self,
-        root_dir,
+        root_dir=None,
         idx_only=None,
         mel_spectograms=True,
         limit_length=False,
@@ -98,6 +100,10 @@ class DigitalVoicingDataset(lib.sEMGDataset):
                 limit_length,
                 add_stft_features,
                 mel_spectograms)
+        elif not root_dir and dataset_source==lib.sEMGDatasetSource.AUGMENTED:
+            self.utterances = []
+        else:
+            raise ValueError("Unknown dataset requested:", root_dir, dataset_source)
 
     def load_ground_truth(self,
                           root_dir,
@@ -105,6 +111,8 @@ class DigitalVoicingDataset(lib.sEMGDataset):
                           limit_length,
                           add_stft_features,
                           mel_spectograms):
+        """Create a dataset using the original ground truth dataset."""
+
         # Union between idx list and target idx list
         files = os.listdir(root_dir)
         idx_s = set([fi.split("_")[0] for fi in files])
@@ -201,6 +209,10 @@ class DigitalVoicingDataset(lib.sEMGDataset):
     def __getitem__(self, i):
         return self.utterances[i].get_dict()
     
+    def add(self, dataset):
+        """Adds the utterances of another dataset to this one."""
+        self.utterances += dataset.utterances
+
     @staticmethod
     def collate_fixed_length(batch):
         batch_size = len(batch)

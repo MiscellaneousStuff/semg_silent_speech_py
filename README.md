@@ -43,6 +43,12 @@ cd semg_silent_speech_py
 cd waveglow
 git submodule init
 git submodule update
+cd tacotron2
+git submodule init
+git submodule update
+cd waveglow
+git submodule init
+git submodule update
 ```
 
 ## Inference
@@ -50,3 +56,21 @@ git submodule update
 ### Transduction
 
 This model converts a sequence of EMG features into a sequence of audio features.
+
+### EMG Augmentation
+
+This model converts a sequence of audio features into EMG features.
+
+## Training
+
+### Transduction
+
+#### Ground Truth Data Only
+
+This training type only uses the original ground truth dataset.
+
+#### Augmented Data Only
+
+This training type uses only data which is produced using the EMG data synthesis
+model (i.e. Data Augmentation Model). This training mode is used to benchmark
+how well the augmented data alone performs.

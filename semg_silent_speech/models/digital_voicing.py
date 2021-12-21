@@ -25,7 +25,6 @@ David Gaddy and Dan Klein.
 Model is adapted to use WaveGlow as the vocoder instead of the original
 WaveNet model."""
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 

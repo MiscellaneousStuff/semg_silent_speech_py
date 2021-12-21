@@ -19,7 +19,8 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Train a transduction or data augmentation model."""
+"""Train a transduction model with or without an augmented dataset or just a data
+augmentation model."""
 
 import numpy as np
 import time
@@ -34,11 +35,14 @@ import torch
 import torch.nn.functional as F
 from torch.cuda.amp.grad_scaler import GradScaler
 
+import neptune.new as neptune
+
 from absl import flags
 from absl import app
 
 from semg_silent_speech.datasets.digital_voicing import DigitalVoicingDataset
-from semg_silent_speech.datasets.lib import sEMGDatasetType
+from semg_silent_speech.datasets.digital_voicing import DigitalVoicingUtterance
+from semg_silent_speech.datasets.lib import sEMGDatasetType, sEMGDatasetSource
 from semg_silent_speech.models.digital_voicing import DigitalVoicingModel
 from semg_silent_speech.models.lib import SequenceLayerType
 from semg_silent_speech.lib import plotting
@@ -64,9 +68,14 @@ flags.DEFINE_integer("learning_rate_patience", 5, "Learning rate decay patience"
 flags.DEFINE_bool("add_stft_features", False, "Use short-time fourier transform EMG features")
 flags.DEFINE_bool("use_transformer", False, "Use transformer layer for sequence layer")
 flags.DEFINE_bool("train_with_augmentation", False, "Set this to train with generated EMG data")
+flags.DEFINE_string("augment_checkpoint_path", None,
+    "Checkpoint path for augmentation model (Used with `train_with_augmentation`)")
+flags.DEFINE_bool("log_augmented_data", False, "log() augmented data when used with model. May improve performance")
+flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
+flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
 flags.mark_flag_as_required("root_dir")
 
-def test(model, testset, device, epoch_idx):
+def test(model, testset, device, epoch_idx, run=None):
     model.eval()
 
     dataloader = torch.utils.data.DataLoader(testset, batch_size=1)
@@ -80,13 +89,18 @@ def test(model, testset, device, epoch_idx):
                 y = example["audio_features"].to(device)
             else:
                 X = example["audio_features"].to(device)
-                y = example["voiced_emg_features"].to(device) # NOTE: Only voiced for now
+                y = example["voiced_emg_features"]
+                if FLAGS.log_augmented_data:
+                    y = torch.log(y)
+                y = y.to(device) # NOTE: Only voiced for now
 
             with torch.autocast(
                 enabled=FLAGS.amp,
                 dtype=torch.bfloat16,
                 device_type="cuda"):
                 pred = model(X)
+                if FLAGS.log_augmented_data:
+                    pred = torch.exp(pred)
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
@@ -104,12 +118,14 @@ def test(model, testset, device, epoch_idx):
                         plotting.stack_mel_spectogram(y),
                         epoch_idx=epoch_idx)
                     fig.savefig("cur.png")
+                    run["model/visualisation"].upload("cur.png")
                 else:
                     fig = plotting.plot_pred_y_emg_features(
                         plotting.stack_emg_features(pred),
                         plotting.stack_emg_features(y),
                         epoch_idx=epoch_idx)
                     fig.savefig("cur_augment.png")
+                    run["model/visualisation"].upload("cur_augment.png")
                 plt.close()
                 plotted = True
 
@@ -117,10 +133,103 @@ def test(model, testset, device, epoch_idx):
 
     return np.mean(losses)
 
-def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
+def get_augmented_utterances(dataloader, devset, device):
+    model = DigitalVoicingModel(
+        ins=devset.num_speech_features,
+        model_size=256, # NOTE: ONLY HARD CODE THIS FOR NOW!
+        n_layers=FLAGS.n_layers,
+        dropout=FLAGS.dropout,
+        outs=devset.num_features,
+        sequence_layer=SequenceLayerType.LSTM # NOTE: ONLY HARD CODE THIS FOR NOW!
+    ).to(device)
+
+    model.load_state_dict(torch.load(FLAGS.augment_checkpoint_path))
+    model.eval()
+
+    preds = []
+    i = 0
+    with torch.no_grad():
+        for example in dataloader:
+            i += 1
+            X = example["audio_features"].to(device)
+            y = example["voiced_emg_features"]
+            if FLAGS.log_augmented_data:
+                y *= 0.01
+            y = y.to(device) # NOTE: Only voiced for now
+
+            with torch.autocast(
+                enabled=FLAGS.amp,
+                dtype=torch.bfloat16,
+                device_type="cuda"):
+                pred = model(X)
+                if FLAGS.log_augmented_data:
+                    pred *= 0.01
+                if pred.shape[0] != y.shape[0]:
+                    min_first_dim = min(pred.shape[0], y.shape[0])
+                    if pred.shape[0] != min_first_dim:
+                        pred = pred[min_first_dim:, :, :]
+                    if y.shape[0] != min_first_dim:
+                        y = y[min_first_dim:, :, :]
+                
+                print(f"Generating EMG augment: {i}",
+                    pred.shape == y.shape,
+                    pred.shape, y.shape)
+
+                preds.append(pred)
+    
+    # Get Tensors off training device and into NumPy arrays
+    final_preds = []
+    for pred in preds:
+        pred = torch.squeeze(pred)
+        final_preds.append(pred.cpu().float().detach().numpy())
+
+    return final_preds
+
+def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None):
     training_subset = torch.utils.data.Subset(
         trainset,
         list(range(int(len(trainset) * FLAGS.datasize_fraction))))
+
+    if FLAGS.train_with_augmentation:
+        # Generate synthesized EMG samples
+        augmented_dataloader = torch.utils.data.DataLoader(trainset, batch_size=1)
+        augmented_trainset = DigitalVoicingDataset(
+            root_dir=None,
+            dataset_type=sEMGDatasetType.TRAIN,
+            dataset_source=sEMGDatasetSource.AUGMENTED)
+        augmented_utterances = \
+            get_augmented_utterances(augmented_dataloader, trainset, device)
+        
+        # Append synthesized samples to new dataset
+        for i, utterance in enumerate(trainset):
+            augmented_trainset.utterances.append(
+                DigitalVoicingUtterance(
+                    voiced_emg_features=augmented_utterances[i],
+                    silent_emg_features=utterance["silent_emg_features"],
+                    text=utterance["text"],
+                    audio_discrete=utterance["audio_discrete"],
+                    audio_features=utterance["audio_features"],
+                    chunks=utterance["chunks"],
+                    audio_raw=utterance["audio_discrete"])) # NOTE: Investigate this later
+        
+        # Append ground truth samples to new dataset
+        for utterance in training_subset:
+            augmented_trainset.utterances.append(
+                DigitalVoicingUtterance(
+                    voiced_emg_features=augmented_utterances[i],
+                    silent_emg_features=utterance["silent_emg_features"],
+                    text=utterance["text"],
+                    audio_discrete=utterance["audio_discrete"],
+                    audio_features=utterance["audio_features"],
+                    chunks=utterance["chunks"],
+                    audio_raw=utterance["audio_discrete"]))
+
+        training_subset = augmented_trainset
+
+    for i in range(370):
+        print(f'Training idx {i} (voiced, audio):',
+            training_subset[i]["voiced_emg_features"].shape,
+            training_subset[i]["audio_features"].shape)
 
     dataloader = torch.utils.data.DataLoader(
         training_subset,
@@ -179,13 +288,18 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
                 y = batch["audio_features"].to(device)
             else:
                 X = batch["audio_features"].to(device)
-                y = batch["voiced_emg_features"].to(device) # NOTE: Only voiced for now
+                y = batch["voiced_emg_features"]
+                if FLAGS.log_augmented_data:
+                    y *= 0.01
+                y = y.to(device) # NOTE: Only voiced for now
 
             with torch.autocast(
                 enabled=FLAGS.amp,
                 dtype=torch.bfloat16,
                 device_type="cuda"):
                 pred = model(X)
+                if FLAGS.log_augmented_data:
+                    y *= 0.01
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
@@ -201,17 +315,21 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
             scaler.update()
         
         val_start = time.time()
-        val = test(model, devset, device, epoch_idx)
+        val = test(model, devset, device, epoch_idx, run=run)
         # lr_sched.step(val)
 
         train_loss = np.mean(losses)
 
+        run["train_loss"].log(train_loss)
+        run["val_loss"].log(val)
+
         if best_validation != val and epoch_idx % 100 == 0 or orig_epoch_idx+1 == n_epochs:
             os.makedirs("./models", exist_ok=True)
+            model_path = os.path.join(FLAGS.output_directory,
+                         f'epoch({epoch_idx})_loss({val})_model.pt')
+            torch.save(model.state_dict(), model_path)
+            run["best_model"].upload(model_path)
 
-            torch.save(model.state_dict(),
-                os.path.join(FLAGS.output_directory,
-                f'epoch({epoch_idx})_loss({val})_model.pt'))
         best_validation = min(best_validation, val)
 
 
@@ -222,6 +340,37 @@ def train(trainset, devset, device, n_epochs=100, checkpoint_path=None):
         losses_s.append(train_loss)
 
 def main(unused_argv):
+    # Set Neptune.ai handler
+    run = neptune.init(project=FLAGS.neptune_project,
+                       api_token=FLAGS.neptune_token)
+
+    # Log parameters
+    run["parameters"] = {
+        "root_dir": FLAGS.root_dir,
+        "dropout": FLAGS.dropout,
+        "model_size": FLAGS.model_size,
+        "batch_size": FLAGS.batch_size,
+        "n_layers": FLAGS.n_layers,
+        "idx_only": FLAGS.idx_only,
+        "learning_rate": FLAGS.learning_rate,
+        "random_seed": FLAGS.random_seed,
+        "n_epochs": FLAGS.n_epochs,
+        "checkpoint_path": FLAGS.checkpoint_path,
+        "output_directory": FLAGS.output_directory,
+        "datasize_fraction": FLAGS.datasize_fraction,
+        "data_augment_model": FLAGS.data_augment_model,
+        "amp": FLAGS.amp,
+        "num_workers": FLAGS.num_workers,
+        "learning_rate_patience": FLAGS.learning_rate_patience,
+        "add_stft_features": FLAGS.add_stft_features,
+        "use_transformer": FLAGS.use_transformer,
+        "train_with_augmentation": FLAGS.train_with_augmentation,
+        "augment_checkpoint_path": FLAGS.augment_checkpoint_path,
+        "log_augmented_data": FLAGS.log_augmented_data,
+        "neptune_token": FLAGS.neptune_token,
+        "neptune_project": FLAGS.neptune_project
+    }
+
     # Set random seed using NumPy and Torch
     random.seed(FLAGS.random_seed)
     np.random.seed(FLAGS.random_seed)
@@ -252,7 +401,10 @@ def main(unused_argv):
           devset=devset,
           device=device,
           n_epochs=FLAGS.n_epochs,
+          run=run,
           checkpoint_path=FLAGS.checkpoint_path)
+
+    run.stop()
 
 def entry_point():
     app.run(main)
