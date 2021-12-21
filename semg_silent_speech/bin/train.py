@@ -73,6 +73,7 @@ flags.DEFINE_string("augment_checkpoint_path", None,
 flags.DEFINE_bool("log_augmented_data", False, "log() augmented data when used with model. May improve performance")
 flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
 flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
+flags.DEFINE_bool("neptune_model_upload", False, "(Optional) Upload best_val model to Neptune.ai")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx, run=None):
@@ -328,7 +329,8 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
             model_path = os.path.join(FLAGS.output_directory,
                          f'epoch({epoch_idx})_loss({val})_model.pt')
             torch.save(model.state_dict(), model_path)
-            run["best_model"].upload(model_path)
+            if FLAGS.neptune_model_upload:
+                run["best_model"].upload(model_path)
 
         best_validation = min(best_validation, val)
 
