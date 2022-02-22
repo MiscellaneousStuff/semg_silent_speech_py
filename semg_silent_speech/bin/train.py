@@ -305,10 +305,11 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
-                        pred = pred[min_first_dim:, :, :]
+                        pred = pred[:min_first_dim, :, :]
                     if y.shape[0] != min_first_dim:
-                        y = y[min_first_dim:, :, :]
-                
+                        y = y[:min_first_dim, :, :]
+
+                # print('(X, pred, y) shape:', X.shape, pred.shape, y.shape)
                 loss = F.mse_loss(pred, y)
                 losses.append(loss.item())
 
