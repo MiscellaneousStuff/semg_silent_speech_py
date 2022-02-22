@@ -147,3 +147,6 @@ dmypy.json
 
 # Ignore augment_vs_ground visualisations
 /augment_vs_ground_visuals
+
+# Ignore neptune async files
+.neptune/
