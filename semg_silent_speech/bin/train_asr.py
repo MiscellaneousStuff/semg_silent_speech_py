@@ -19,23 +19,19 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""New proposed model to classify speech from surface electromyography
-(sEMG) signals during silent speech by Tada Makepeace. The model is a
-mixture of a recent DeepSpeech2 model and the original transduction model
-proposed in the Digital Voicing of Silent Speech paper.
+"""Train a speech recognition model with can classify sEMG data recorded during
+silent speech into text."""
 
-This approach allows the text classification of silent speech without requiring
-audio data from users which makes it more flexible. The text prediction model
-can also be improved with a language model on the predictions which improves
-it's performance even further.
+from absl import flags
+from absl import app
 
-Text output from this model can also then used with FastSpeech2 (trained
-on the text and audio of the silent speech dataset) along with the WaveGlow
-vocoder."""
+FLAGS = flags.FLAGS
 
-import torch.nn as nn
+def main(unused_argv):
+    print("hi")
 
+def entry_point():
+    app.run(main)
 
-class DigitalVoicingASRModel(nn.Module):
-    def __init__(self):
-        super().__init__()
+if __name__ == "__main__":
+    app.run(main)
