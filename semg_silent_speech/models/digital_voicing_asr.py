@@ -59,9 +59,9 @@ class DigitalVoicingASRModel(nn.Module):
     def __init__(self,
                  ins,
                  rnn_dim,
-                 n_rnn_layers,
                  n_class,
                  num_sessions,
+                 n_rnn_layers=5,
                  dropout=0.1,
                  session_embed=True,
                  emb_size=32):
@@ -94,12 +94,12 @@ class DigitalVoicingASRModel(nn.Module):
         )
 
     def forward(self, x_feat, session_ids):
-        if not self.session_embed:
-            x = x_feat
-        else:
+        if self.session_embed:
             emb = self.session_emb(session_ids)
             x = x_feat + self.w_emb(emb)
-        
+        else:
+            x = x_feat
+            
         x = self.birnn_layers(x)
         x = self.classifier(x)
 

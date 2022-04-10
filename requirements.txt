@@ -9,3 +9,4 @@ scipy
 jiwer
 deepspeech-gpu
 unidecode
+torchnlp
