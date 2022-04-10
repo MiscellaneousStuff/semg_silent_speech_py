@@ -212,7 +212,7 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
         session_ids = new_sess_ids
         """
 
-        print("lens:", len(emg_data_s), len(session_ids), len(labels))
-        print("types:", type(emg_data_s), type(session_ids), type(labels))
-        print("shapes:", emg_data_s.shape, session_ids.shape, labels.shape)
+        #print("lens:", len(emg_data_s), len(session_ids), len(labels))
+        #print("types:", type(emg_data_s), type(session_ids), type(labels))
+        #print("shapes:", emg_data_s.shape, session_ids.shape, labels.shape)
         return emg_data_s, torch.tensor([]), labels, input_lengths, label_lengths

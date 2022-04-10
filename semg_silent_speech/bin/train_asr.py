@@ -100,6 +100,16 @@ def train(trainset, devset, device, n_epochs=100):
                     epoch_idx, batch_idx * len(emg_data_s), data_len,
                     100. * batch_idx / len(dataloader), loss.item()))
 
+            losses.append(loss.item())
+
+        train_loss = sum(losses) / len(losses)
+        losses_s.append(train_loss)
+        print("EPOCH, TRAIN_LOSS:", epoch_idx, train_loss)
+
+        import matplotlib.pyplot as plt
+        plt.plot(losses_s)
+        plt.savefig("train_loss.png")
+
 def main(unused_argv):
     # Set random seed using NumPy and Torch
     random.seed(FLAGS.random_seed)
