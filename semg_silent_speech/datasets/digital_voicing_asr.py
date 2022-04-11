@@ -117,11 +117,16 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
             self.encoder = get_encoder()
 
         self.dataset_type = dataset_type
-        top_dirs = [
-            "closed_vocab/voiced/"]#,
-            #"voiced_parallel_data/",
-            #"nonparallel_data/"]
         
+        """
+        top_dirs = [
+            "closed_vocab/voiced/"
+            "voiced_parallel_data/",
+            "nonparallel_data/"]
+        """
+
+        top_dirs = [
+            "voiced_parallel_data/"]
         num_sessions = 0
 
         done = False
@@ -131,6 +136,8 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
             sub_dirs = os.listdir(os.path.join(root_dir, top_dir))
 
             for sub_dir in sub_dirs:
+                print(sub_dir)
+
                 num_sessions += 1
                 cur_fis   = os.listdir(os.path.join(root_dir, top_dir, sub_dir))
                 cur_infos = list(filter(lambda fi: fi.endswith(".json"), cur_fis))
@@ -185,16 +192,19 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
             emg_data = torch.from_numpy(example._voiced_emg_features)
             text = example._text
 
-            label = normalise_text(text)
-            label = self.encoder.batch_encode(label.lower())
-            # print("LABEL:", emg_data, label)
+            try:
+                label = normalise_text(text)
+                print("label:", len(label))
+                label = self.encoder.batch_encode(label)
+            except Exception as e:
+                print("error:", e, text, normalise_text(text))
 
             session_id = np.full(emg_data.shape[0], example._session_id, dtype=np.int64)
 
             emg_data_s.append(emg_data)
             session_ids.append(session_id)
             labels.append(label)
-            input_lengths.append(emg_data.shape[0]//2)
+            input_lengths.append(emg_data.shape[0]//2) # Half the number of EMG features?
             label_lengths.append(len(label))
 
         emg_data_s = \
