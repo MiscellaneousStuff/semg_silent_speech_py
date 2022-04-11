@@ -194,10 +194,11 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
 
             try:
                 label = normalise_text(text)
-                print("label:", len(label))
+                #print("label:", len(label))
                 label = self.encoder.batch_encode(label)
             except Exception as e:
-                print("error:", e, text, normalise_text(text))
+                label = self.encoder.batch_encode([" "])
+                #print("error:", e, text, len(text), normalise_text(text))
 
             session_id = np.full(emg_data.shape[0], example._session_id, dtype=np.int64)
 

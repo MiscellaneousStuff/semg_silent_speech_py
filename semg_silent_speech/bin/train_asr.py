@@ -246,7 +246,7 @@ def main(unused_argv):
     train(dataset=dataset,
           device=device,
           run=run,
-          n_epochs=FLAGS.epochs,)
+          n_epochs=FLAGS.epochs)
 
     run.stop()
 
