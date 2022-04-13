@@ -49,6 +49,9 @@ electrode_labels = [
     "Back of cheek"
 ]
 
+"""
+Original pre-processing for `Digital Voicing of Silent Speech` paper
+and EMG augmentation task.
 def get_emg_features(emg_data, add_stft_features=False):
     emg_data = emg_data - emg_data.mean(axis=0, keepdims=True)
     emg_features = []
@@ -78,7 +81,37 @@ def get_emg_features(emg_data, add_stft_features=False):
     emg_features = emg_features.astype(np.float32)
 
     return emg_features
+"""
 
+def get_emg_features(emg_data, add_stft_features=False):
+    emg_data = emg_data - emg_data.mean(axis=0, keepdims=True)
+    emg_features = []
+
+    for i in range(emg_data.shape[1]):
+        x   = emg_data[:,i]
+        w   = double_average(x)
+        p   = x - w
+        r   = np.abs(p)
+
+        w_h = librosa.util.frame(w, frame_length=16, hop_length=6).mean(axis=0)
+        p_w = librosa.feature.rms(w, frame_length=16, hop_length=6, center=False)
+        p_w = np.squeeze(p_w, 0)
+        p_r = librosa.feature.rms(r, frame_length=16, hop_length=6, center=False)
+        p_r = np.squeeze(p_r, 0)
+        z_p = librosa.feature.zero_crossing_rate(p, frame_length=16, hop_length=6, center=False)
+        z_p = np.squeeze(z_p, 0)
+        r_h = librosa.util.frame(r, frame_length=16, hop_length=6).mean(axis=0)
+
+        emg_features.append(np.stack([w_h, p_w, p_r, z_p, r_h], axis=1))
+
+        if add_stft_features:
+            s = abs(librosa.stft(np.ascontiguousarray(x), n_fft=16, hop_length=6, center=False))
+            emg_features.append(s.T)
+    
+    emg_features = np.concatenate(emg_features, axis=1)
+    emg_features = emg_features.astype(np.float32)
+
+    return emg_features
 
 class DigitalVoicingASRUtterance(lib.sEMGUtterance):
     """Encapsulation of an sEMG Silent Speech utterance containing the EMG
@@ -126,7 +159,7 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
         """
 
         top_dirs = [
-            "voiced_parallel_data/"]
+            "closed_vocab/voiced/"]
         num_sessions = 0
 
         done = False
@@ -161,6 +194,7 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
                                     get_emg_features(
                                         load_utterance(cur_path, file_idx),
                                         add_stft_features)
+                                print("EMG SHAPE:", emg_data.shape)
                                 text = unidecode(info["text"])
                                 
                                 utter = DigitalVoicingASRUtterance(

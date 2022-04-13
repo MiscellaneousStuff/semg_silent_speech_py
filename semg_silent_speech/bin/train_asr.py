@@ -43,6 +43,7 @@ from semg_silent_speech.datasets.digital_voicing_asr import DigitalVoicingASRDat
 from semg_silent_speech.models.digital_voicing_asr import DigitalVoicingASRModel
 from semg_silent_speech.datasets.lib import sEMGDatasetType
 from semg_silent_speech.lib.asr import GreedyDecoder
+from semg_silent_speech.lib import plotting
 
 import warnings
 warnings.simplefilter(action = "ignore", category = FutureWarning)
@@ -59,18 +60,21 @@ flags.DEFINE_float("learning_rate", 5e-4, "Initial learning rate")
 flags.DEFINE_integer("batch_size", 32, "Number of examples per single mini-batch")
 flags.DEFINE_float("dropout", 0.1, "Dropout percentage")
 flags.DEFINE_bool("amp", True, "Use mixed precision training")
+flags.DEFINE_bool("add_stft_features", False, "Add stft features for EMG input")
 flags.DEFINE_integer("n_rnn_layers", 5, "Number of BiRNN layers")
 flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
 flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
+flags.DEFINE_string("encoder_vocab", "", "(Optional) Define the encoder vocabulary")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, device, test_loader, encoder, criterion, run):
     model.eval()
     test_loss = 0
+
     test_cer, test_wer = [], []
 
     with torch.no_grad():
-        for i, _data in enumerate(test_loader):
+        for batch_idx, _data in enumerate(test_loader):
             emg_data_s, session_ids, labels, input_lengths, label_lengths = _data
             emg_data_s, session_ids, labels = \
                 emg_data_s.to(device), session_ids.to(session_ids), labels.to(device)
@@ -90,9 +94,9 @@ def test(model, device, test_loader, encoder, criterion, run):
             decoded_preds, decoded_targets = \
                 GreedyDecoder(output.transpose(0, 1), labels, label_lengths, encoder)
 
-            if i in [1, 2, 3]:
-                print("Targets:", decoded_targets[0:3])
-                print("Preds:", decoded_preds[0:3])
+            
+            print("Targets:", decoded_targets)
+            print("Preds:", decoded_preds)
 
             for j in range(len(decoded_preds)):
                 test_cer.append(cer(decoded_targets[j], decoded_preds[j]))
@@ -142,11 +146,13 @@ def train(dataset, device, run, n_epochs=100):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=FLAGS.learning_rate)
     criterion = nn.CTCLoss(blank=28).to(device)
+    
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=FLAGS.learning_rate, 
                                             steps_per_epoch=int(len(dataloader)),
                                             epochs=FLAGS.epochs,
                                             anneal_strategy='linear')
-                                            
+    
+
     best_validation = float("inf")
 
     data_len = len(dataloader)
@@ -186,7 +192,8 @@ def train(dataset, device, run, n_epochs=100):
             scheduler.step()
 
             if batch_idx % 100 == 0 or batch_idx == data_len:
-                lr_s.append(scheduler.get_last_lr())
+                # lr_s.append(scheduler.get_last_lr())
+                lr_s.append(FLAGS.learning_rate)
                 plt.plot(lr_s)
                 plt.savefig("learning_rate.png")
                 plt.close()
@@ -200,6 +207,7 @@ def train(dataset, device, run, n_epochs=100):
         losses_s.append(train_loss)
         run["loss"].log(train_loss)
         run["learning_rate"].log(scheduler.get_last_lr())
+        run["learning_rate"].log(FLAGS.learning_rate)
         print("EPOCH, TRAIN_LOSS:", epoch_idx, train_loss)
 
         plt.plot(losses_s)
@@ -226,7 +234,9 @@ def main(unused_argv):
         "rnn_dim": FLAGS.rnn_dim,
         "no_session_embed": FLAGS.no_session_embed,
         "neptune_token": FLAGS.neptune_token,
-        "neptune_project": FLAGS.neptune_project
+        "neptune_project": FLAGS.neptune_project,
+        "encoder_vocab": FLAGS.encoder_vocab,
+        "add_stft_features": FLAGS.add_stft_features
     }
 
     # Set random seed using NumPy and Torch
@@ -239,7 +249,8 @@ def main(unused_argv):
     dataset = DigitalVoicingASRDataset(
         root_dir=FLAGS.root_dir,
         dataset_type=sEMGDatasetType.TRAIN,
-        add_stft_features=False)
+        encoder_vocab=FLAGS.encoder_vocab,
+        add_stft_features=FLAGS.add_stft_features)
 
     # print("feats, sess_count:", trainset.num_features, trainset.num_sessions)
 
