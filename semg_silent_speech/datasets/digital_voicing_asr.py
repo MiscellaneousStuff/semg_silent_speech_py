@@ -153,13 +153,26 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
         
         """
         top_dirs = [
-            "closed_vocab/voiced/"
+            "closed_vocab/voiced/",
             "voiced_parallel_data/",
             "nonparallel_data/"]
         """
 
         top_dirs = [
             "closed_vocab/voiced/"]
+
+        """
+        target_sub_dirs = [
+            "5-10",
+            "5-10_silent"
+        ]
+        """
+
+        target_sub_dirs = []
+
+        self.top_dirs = top_dirs
+        self.target_sub_dirs = target_sub_dirs
+
         num_sessions = 0
 
         done = False
@@ -169,6 +182,10 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
             sub_dirs = os.listdir(os.path.join(root_dir, top_dir))
 
             for sub_dir in sub_dirs:
+                if target_sub_dirs:
+                    if not (sub_dir in target_sub_dirs):
+                        continue
+
                 print(sub_dir)
 
                 num_sessions += 1
@@ -194,7 +211,6 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
                                     get_emg_features(
                                         load_utterance(cur_path, file_idx),
                                         add_stft_features)
-                                print("EMG SHAPE:", emg_data.shape)
                                 text = unidecode(info["text"])
                                 
                                 utter = DigitalVoicingASRUtterance(
@@ -231,7 +247,7 @@ class DigitalVoicingASRDataset(lib.sEMGDataset):
                 #print("label:", len(label))
                 label = self.encoder.batch_encode(label)
             except Exception as e:
-                label = self.encoder.batch_encode([" "])
+                label = self.encoder.batch_encode(["."])
                 #print("error:", e, text, len(text), normalise_text(text))
 
             session_id = np.full(emg_data.shape[0], example._session_id, dtype=np.int64)
