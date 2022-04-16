@@ -65,9 +65,14 @@ flags.DEFINE_integer("n_rnn_layers", 5, "Number of BiRNN layers")
 flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
 flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
 flags.DEFINE_string("encoder_vocab", "", "(Optional) Define the encoder vocabulary")
+flags.DEFINE_integer('learning_rate_patience', 5, 'Learning rate decay patience')
+flags.DEFINE_integer('learning_rate_warmup', 500, 'Steps of linear warmup')
+flags.DEFINE_bool("sanity_test", False, "Trains and evals on one same utterance.")
+flags.DEFINE_float('l2', 1e-7, 'weight decay')
+flags.DEFINE_float('reduce_lr_factor', 0.5, "Factor to reduce LR by on plateau")
 flags.mark_flag_as_required("root_dir")
 
-def test(model, device, test_loader, encoder, criterion, run):
+def test(model, device, test_loader, encoder, criterion, run, blank_label):
     model.eval()
     test_loss = 0
 
@@ -92,8 +97,7 @@ def test(model, device, test_loader, encoder, criterion, run):
                 test_loss += loss.item() / len(test_loader)
 
             decoded_preds, decoded_targets = \
-                GreedyDecoder(output.transpose(0, 1), labels, label_lengths, encoder)
-
+                GreedyDecoder(output.transpose(0, 1), labels, label_lengths, encoder, blank_label)
             
             print("Targets:", decoded_targets)
             print("Preds:", decoded_preds)
@@ -116,8 +120,16 @@ def train(dataset, device, run, n_epochs=100):
     train_split = int(dataset_len * 0.9)
     test_split  = dataset_len - train_split
 
-    train_dataset, test_dataset = \
-        torch.utils.data.random_split(dataset, [train_split, test_split])
+    if not FLAGS.sanity_test:
+        train_dataset, test_dataset = \
+            torch.utils.data.random_split(dataset, [train_split, test_split])
+        # train_dataset = torch.utils.data.Subset(dataset, range(len(dataset)))
+        # test_dataset  = torch.utils.data.Subset(dataset, range(len(dataset)))
+    else:
+        sanity_test_num = 50
+        run["sanity_test_num"] = sanity_test_num
+        train_dataset = torch.utils.data.Subset(dataset, range(sanity_test_num))
+        test_dataset  = torch.utils.data.Subset(dataset, range(sanity_test_num))
 
     dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -144,14 +156,35 @@ def train(dataset, device, run, n_epochs=100):
         session_embed=not FLAGS.no_session_embed,
         dropout=FLAGS.dropout).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=FLAGS.learning_rate)
-    criterion = nn.CTCLoss(blank=28).to(device)
+    blank_label = 0
+    optimizer = torch.optim.AdamW(model.parameters(),
+                                  lr=FLAGS.learning_rate,
+                                  weight_decay=FLAGS.l2)
+    criterion = nn.CTCLoss(blank=blank_label).to(device)
     
+    """
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=FLAGS.learning_rate, 
                                             steps_per_epoch=int(len(dataloader)),
                                             epochs=FLAGS.epochs,
                                             anneal_strategy='linear')
+    """
+
     
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(\
+        optimizer, 'min', FLAGS.reduce_lr_factor, patience=FLAGS.learning_rate_patience)
+    
+
+    run["lr_scheduler"] = type(scheduler)
+
+    def set_lr(new_lr):
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = new_lr
+
+    target_lr = FLAGS.learning_rate
+    def schedule_lr(iteration):
+        iteration = iteration + 1
+        if iteration <= FLAGS.learning_rate_warmup:
+            set_lr(iteration*target_lr/FLAGS.learning_rate_warmup)
 
     best_validation = float("inf")
 
@@ -161,18 +194,18 @@ def train(dataset, device, run, n_epochs=100):
 
     losses_s = []
     lr_s = []
+    batch_count = 0
     for epoch_idx in range(n_epochs):
         model.train()
         
         losses = []
-        start = time.time()
-
         for batch_idx, _data in enumerate(dataloader):
             emg_data_s, session_ids, labels, input_lengths, label_lengths = _data
             emg_data_s, session_ids, labels = \
                 emg_data_s.to(device), session_ids.to(session_ids), labels.to(device)
 
             # optimizer.zero_grad()
+            schedule_lr(batch_count)
 
             with torch.autocast(
                 enabled=FLAGS.amp,
@@ -189,37 +222,42 @@ def train(dataset, device, run, n_epochs=100):
             scaler.step(optimizer)
             scaler.update()
 
-            scheduler.step()
+            # OneCycleLR ONLY
+            # scheduler.step()
 
             if batch_idx % 100 == 0 or batch_idx == data_len:
-                # lr_s.append(scheduler.get_last_lr())
-                lr_s.append(FLAGS.learning_rate)
-                plt.plot(lr_s)
-                plt.savefig("learning_rate.png")
-                plt.close()
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch_idx, batch_idx * len(emg_data_s), data_len,
                     100. * batch_idx / len(dataloader), loss.item()))
 
             losses.append(loss.item())
+            batch_count += 1
 
         train_loss = sum(losses) / len(losses)
         losses_s.append(train_loss)
         run["loss"].log(train_loss)
-        run["learning_rate"].log(scheduler.get_last_lr())
-        run["learning_rate"].log(FLAGS.learning_rate)
+        run["learning_rate"].log(optimizer.param_groups[0]['lr'])
+        # run["learning_rate"].log(FLAGS.learning_rate)
         print("EPOCH, TRAIN_LOSS:", epoch_idx, train_loss)
 
-        plt.plot(losses_s)
-        plt.savefig("train_loss.png")
-        plt.close()
-
-        test(model, device, testloader, dataset.encoder, criterion, run)
+        val_loss, avg_wer = \
+            test(model, device, testloader, dataset.encoder, criterion, run, blank_label)
+        scheduler.step(val_loss)
 
 def main(unused_argv):
     # Set Neptune.ai handler
     run = neptune.init(project=FLAGS.neptune_project,
                        api_token=FLAGS.neptune_token)
+
+    dataset = DigitalVoicingASRDataset(
+        root_dir=FLAGS.root_dir,
+        dataset_type=sEMGDatasetType.TRAIN,
+        encoder_vocab=FLAGS.encoder_vocab,
+        add_stft_features=FLAGS.add_stft_features)
+
+    # Log which directories are being used in each experiment
+    run["top_dirs"] = dataset.top_dirs
+    run["target_sub_dirs"] = dataset.target_sub_dirs
 
     # Log parameters
     run["parameters"] = {
@@ -236,7 +274,13 @@ def main(unused_argv):
         "neptune_token": FLAGS.neptune_token,
         "neptune_project": FLAGS.neptune_project,
         "encoder_vocab": FLAGS.encoder_vocab,
-        "add_stft_features": FLAGS.add_stft_features
+        "add_stft_features": FLAGS.add_stft_features,
+        "learning_rate_patience": FLAGS.learning_rate_patience,
+        "sanity_test": FLAGS.sanity_test,
+        "learning_rate_warmup": FLAGS.learning_rate_warmup,
+        "l2": FLAGS.l2,
+        "reduce_lr_factor": FLAGS.reduce_lr_factor,
+        "dataset_len": len(dataset)
     }
 
     # Set random seed using NumPy and Torch
@@ -245,12 +289,6 @@ def main(unused_argv):
     torch.manual_seed(FLAGS.random_seed)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    dataset = DigitalVoicingASRDataset(
-        root_dir=FLAGS.root_dir,
-        dataset_type=sEMGDatasetType.TRAIN,
-        encoder_vocab=FLAGS.encoder_vocab,
-        add_stft_features=FLAGS.add_stft_features)
 
     # print("feats, sess_count:", trainset.num_features, trainset.num_sessions)
 
