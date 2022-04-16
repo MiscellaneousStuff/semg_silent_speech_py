@@ -1,6 +1,6 @@
 # MIT License
 # 
-# Copyright (c) 2021 Tada Makepeace
+# Copyright (c) 2022 Tada Makepeace
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -75,6 +75,7 @@ flags.DEFINE_bool("log_augmented_data", False, "log() augmented data when used w
 flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
 flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
 flags.DEFINE_bool("neptune_model_upload", False, "(Optional) Upload best_val model to Neptune.ai")
+flags.DEFINE_bool("reconstruction_loss", False, "(Optional) Enables Ev reconstruction to regularise training")
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx, run=None):
@@ -100,7 +101,10 @@ def test(model, testset, device, epoch_idx, run=None):
                 enabled=FLAGS.amp,
                 dtype=torch.bfloat16,
                 device_type="cuda"):
-                pred = model(X)
+                if not FLAGS.reconstruction_loss:
+                    pred, _ = model(X)
+                else:
+                    pred, reconstruct = model(X)
                 if FLAGS.log_augmented_data:
                     pred = torch.exp(pred)
                 if pred.shape[0] != y.shape[0]:
@@ -111,6 +115,8 @@ def test(model, testset, device, epoch_idx, run=None):
                         y = y[min_first_dim:, :, :]
                 
                 loss = F.mse_loss(pred, y)
+                if FLAGS.reconstruction_loss:
+                    loss += F.l1_loss(reconstruct, X)
                 losses.append(loss.item())
 
             if epoch_idx % 10 == 0 and not plotted:
@@ -119,8 +125,21 @@ def test(model, testset, device, epoch_idx, run=None):
                         plotting.stack_mel_spectogram(pred),
                         plotting.stack_mel_spectogram(y),
                         epoch_idx=epoch_idx)
-                    fig.savefig("cur.png")
-                    run["model/visualisation"].upload("cur.png")
+
+                    fname = f"cur_{epoch_idx}.png"
+                    fig.savefig(fname)
+                    run["model/visualisation"].upload(fname)
+                    run[f"model/epoch_{epoch_idx}_visualisation"].upload(fname)
+
+                    reconstruction_fig = plotting.plot_pred_y_emg_features(
+                        plotting.stack_emg_features(reconstruct),
+                        plotting.stack_emg_features(y),
+                        epoch_idx=epoch_idx)
+                    
+                    reconstruct_fname = f"cur_reconstruct_{epoch_idx}.png"
+                    reconstruction_fig.savefig(reconstruct_fname)
+                    run["model/reconstruct_visualisation"].upload(reconstruct_fname)
+                    run[f"model/epoch_{epoch_idx}_reconstruct_visualisation"].upload(reconstruct_fname)
                 else:
                     fig = plotting.plot_pred_y_emg_features(
                         plotting.stack_emg_features(pred),
@@ -248,6 +267,9 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
         model_size=FLAGS.model_size,
         n_layers=FLAGS.n_layers,
         dropout=FLAGS.dropout,
+        reconstruct_outs=devset.num_features \
+                         if FLAGS.reconstruction_loss \
+                         else None,
         outs=devset.num_speech_features \
              if not FLAGS.data_augment_model \
              else devset.num_features,
@@ -299,9 +321,13 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
                 enabled=FLAGS.amp,
                 dtype=torch.bfloat16,
                 device_type="cuda"):
-                pred = model(X)
+                if not FLAGS.reconstruction_loss:
+                    pred, _ = model(X)
+                else:
+                    pred, reconstruct = model(X)
                 if FLAGS.log_augmented_data:
                     y *= 0.01
+
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
@@ -311,6 +337,8 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
 
                 # print('(X, pred, y) shape:', X.shape, pred.shape, y.shape)
                 loss = F.mse_loss(pred, y)
+                if FLAGS.reconstruction_loss:
+                    loss += F.l1_loss(reconstruct, X)
                 losses.append(loss.item())
 
             scaler.scale(loss).backward()
@@ -372,7 +400,8 @@ def main(unused_argv):
         "augment_checkpoint_path": FLAGS.augment_checkpoint_path,
         "log_augmented_data": FLAGS.log_augmented_data,
         "neptune_token": FLAGS.neptune_token,
-        "neptune_project": FLAGS.neptune_project
+        "neptune_project": FLAGS.neptune_project,
+        "reconstruction_loss": FLAGS.reconstruction_loss
     }
 
     # Set random seed using NumPy and Torch

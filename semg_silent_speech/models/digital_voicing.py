@@ -1,6 +1,6 @@
 # MIT License
 # 
-# Copyright (c) 2021 Tada Makepeace
+# Copyright (c) 2022 Tada Makepeace
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -39,10 +39,12 @@ class DigitalVoicingModel(nn.Module):
                  n_layers,
                  dropout,
                  outs,
+                 reconstruct_outs=None,
                  sequence_layer=SequenceLayerType.LSTM):
         super().__init__()
         self.dropout = dropout
-        self.sequence_layer=sequence_layer
+        self.sequence_layer = sequence_layer
+        self.reconstruct_outs = reconstruct_outs
         if sequence_layer == SequenceLayerType.LSTM:
             self.lstm = \
                 nn.LSTM(
@@ -50,6 +52,8 @@ class DigitalVoicingModel(nn.Module):
                     bidirectional=True, num_layers=n_layers,
                     dropout=dropout)
             self.w1 = nn.Linear(model_size * 2, outs)
+            if reconstruct_outs:
+                self.w2 = nn.Linear(model_size * 2, reconstruct_outs)
         else:
             encoder_layer = TransformerEncoderLayer(
                 d_model=model_size,        
@@ -59,13 +63,16 @@ class DigitalVoicingModel(nn.Module):
                 dim_feedforward=3072)
             self.transformer = nn.TransformerEncoder(encoder_layer, n_layers)
             self.w_out = nn.Linear(model_size, outs)
-    
+
     def forward(self, x):
         if self.sequence_layer == SequenceLayerType.LSTM:
             x = F.dropout(x, self.dropout, training=self.training)
             x, _ = self.lstm(x)
             x = F.dropout(x, self.dropout, training=self.training)
-            return self.w1(x)
+            if not self.reconstruct_outs:
+                return self.w1(x), None
+            else:
+                return self.w1(x), self.w2(x)
         elif self.sequence_layer == SequenceLayerType.TRANSFORMER:
             x = self.transformer(x)
             return self.w_out(x)
