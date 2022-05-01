@@ -4,7 +4,7 @@ T  := Transduction Model
 A  := EMG Augmentation Model
 
 Ev := 8 channels of 1D EMG recordings (8, time_length)
-Av := Audio features (Mel spectograms)
+Av := Audio features (Mel spectrograms)
 Tv := Text representation of an utterance
 
 Tt := Target text
