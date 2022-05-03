@@ -149,4 +149,4 @@ dmypy.json
 /augment_vs_ground_visuals
 
 # Ignore neptune async files
-.neptune/
+/.neptune/

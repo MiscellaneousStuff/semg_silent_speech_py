@@ -29,11 +29,11 @@ import numpy as np
 def load_audio(fname,
     mel_spectograms,
     max_frames=None,
-    sampling_rate=22_050,
-    n_mel_channels=80,
-    filter_length=1_024,
-    win_length=1_024,
-    hop_length=256,
+    sampling_rate=16_000,
+    n_mel_channels=128,
+    filter_length=512,
+    win_length=432,
+    hop_length=160,
     n_mfcc=26
     ):
     audio, r = sf.read(fname)

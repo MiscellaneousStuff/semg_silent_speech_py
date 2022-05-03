@@ -175,7 +175,8 @@ class DigitalVoicingDataset(lib.sEMGDataset):
                 load_audio(
                     os.path.join(root_dir, audio_fi),
                     mel_spectograms,
-                    max_frames=min(emg_features.shape[0], 800 if limit_length else float('inf')))
+                    max_frames=min(emg_features.shape[0], 800 if limit_length else float('inf')),
+                    )
 
             utterances.append(DigitalVoicingUtterance(
                 emg_features,

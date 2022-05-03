@@ -76,6 +76,7 @@ flags.DEFINE_string("neptune_token", "", "(Optional) Neptune.ai logging token")
 flags.DEFINE_string("neptune_project", "", "(Optional) Neptune.ai project name")
 flags.DEFINE_bool("neptune_model_upload", False, "(Optional) Upload best_val model to Neptune.ai")
 flags.DEFINE_bool("reconstruction_loss", False, "(Optional) Enables Ev reconstruction to regularise training")
+flags.DEFINE_float('l2', 1e-7, 'weight decay')
 flags.mark_flag_as_required("root_dir")
 
 def test(model, testset, device, epoch_idx, run=None):
@@ -130,16 +131,6 @@ def test(model, testset, device, epoch_idx, run=None):
                     fig.savefig(fname)
                     run["model/visualisation"].upload(fname)
                     run[f"model/epoch_{epoch_idx}_visualisation"].upload(fname)
-
-                    reconstruction_fig = plotting.plot_pred_y_emg_features(
-                        plotting.stack_emg_features(reconstruct),
-                        plotting.stack_emg_features(y),
-                        epoch_idx=epoch_idx)
-                    
-                    reconstruct_fname = f"cur_reconstruct_{epoch_idx}.png"
-                    reconstruction_fig.savefig(reconstruct_fname)
-                    run["model/reconstruct_visualisation"].upload(reconstruct_fname)
-                    run[f"model/epoch_{epoch_idx}_reconstruct_visualisation"].upload(reconstruct_fname)
                 else:
                     fig = plotting.plot_pred_y_emg_features(
                         plotting.stack_emg_features(pred),
@@ -185,6 +176,7 @@ def get_augmented_utterances(dataloader, devset, device):
                 pred = model(X)
                 if FLAGS.log_augmented_data:
                     pred *= 0.01
+
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
@@ -279,11 +271,10 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
     
     if checkpoint_path:
         model.load_state_dict(torch.load(checkpoint_path))
-    optim = torch.optim.Adam(model.parameters(), lr=FLAGS.learning_rate)
-    """
+    optim = torch.optim.AdamW(model.parameters(), weight_decay=FLAGS.l2)
+    
     lr_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(\
         optim, 'min', 0.5, patience=FLAGS.learning_rate_patience)
-    """
 
     best_validation = float("inf")
 
@@ -328,13 +319,15 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
                 if FLAGS.log_augmented_data:
                     y *= 0.01
 
+                """
                 if pred.shape[0] != y.shape[0]:
                     min_first_dim = min(pred.shape[0], y.shape[0])
                     if pred.shape[0] != min_first_dim:
                         pred = pred[:min_first_dim, :, :]
                     if y.shape[0] != min_first_dim:
                         y = y[:min_first_dim, :, :]
-
+                """
+                
                 # print('(X, pred, y) shape:', X.shape, pred.shape, y.shape)
                 loss = F.mse_loss(pred, y)
                 if FLAGS.reconstruction_loss:
@@ -347,7 +340,7 @@ def train(trainset, devset, device, n_epochs=100, run=None, checkpoint_path=None
         
         val_start = time.time()
         val = test(model, devset, device, epoch_idx, run=run)
-        # lr_sched.step(val)
+        lr_sched.step(val)
 
         train_loss = np.mean(losses)
 
@@ -401,7 +394,8 @@ def main(unused_argv):
         "log_augmented_data": FLAGS.log_augmented_data,
         "neptune_token": FLAGS.neptune_token,
         "neptune_project": FLAGS.neptune_project,
-        "reconstruction_loss": FLAGS.reconstruction_loss
+        "reconstruction_loss": FLAGS.reconstruction_loss,
+        "l2_weight_decay": FLAGS.l2
     }
 
     # Set random seed using NumPy and Torch
