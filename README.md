@@ -16,7 +16,9 @@ License which the code is released under.
 
 This module is produced as part of the requirement for my Final Year
 Project for my BSc Computer Science degree requirement at the
-University of Portsmouth.
+University of Portsmouth. This module represents the first round of experiments
+for my research project which involves producing a system which considered
+how to synthesize surface EMG signals during the voiced speaking condition.
 
 # Quick Start Guide
 
